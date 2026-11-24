@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { ApiConfig, RoomSyncMeta, RoundRecord } from '../types';
-import { PrecisionForecastResult, SensitivityMode, FlightTier } from '../utils/precisionPredictor';
+import { PrecisionForecastResult } from '../utils/precisionPredictor';
 import { backtestExceedance, estimateExceedance } from '../utils/probabilityEstimate';
 
 interface Props {
@@ -9,23 +9,6 @@ interface Props {
   currentRoundNumber: number;
   apiConfig: ApiConfig;
   roomSyncMeta: RoomSyncMeta;
-  sensitivityMode?: SensitivityMode;
-  flightTier?: FlightTier;
-  proximityRatio?: number;
-  customAnchorMultiplier?: number;
-  volatilityNudge?: number;
-  isScanningScreenshot?: boolean;
-  scanStatusMessage?: string | null;
-  onChangeSensitivity?: (mode: SensitivityMode) => void;
-  onChangeFlightTier?: (tier: FlightTier) => void;
-  onChangeProximityRatio?: (ratio: number) => void;
-  onChangeCustomAnchor?: (value?: number) => void;
-  onLogRound?: (multiplier: number, roundNum?: number) => Promise<void> | void;
-  onLogBatchRounds?: (multipliers: number[]) => Promise<void> | void;
-  onSyncHistory?: (multipliers: number[], order: 'newest_first' | 'oldest_first') => Promise<void> | void;
-  onScanScreenshot?: (file: File) => Promise<void> | void;
-  onAdvanceNextRound?: () => Promise<void> | void;
-  onToggleDataSource?: () => void;
 }
 
 export const NextMultiplierPredictor: React.FC<Props> = ({ history, signal, currentRoundNumber, apiConfig, roomSyncMeta }) => {
@@ -37,6 +20,13 @@ export const NextMultiplierPredictor: React.FC<Props> = ({ history, signal, curr
   const estimate = useMemo(() => estimateExceedance(values, threshold), [values, threshold]);
   const backtest = useMemo(() => backtestExceedance(values, threshold), [values, threshold]);
 
+  const enoughEvidence = backtest.evaluatedRounds >= 30;
+  const expandingWon =
+    enoughEvidence &&
+    backtest.modelBrier !== null &&
+    backtest.baselineBrier !== null &&
+    backtest.modelBrier < backtest.baselineBrier;
+
   return (
     <section className="rounded-xl bg-[#0D1320] border border-slate-800/80 p-5 sm:p-6 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -44,16 +34,18 @@ export const NextMultiplierPredictor: React.FC<Props> = ({ history, signal, curr
           <span className="font-semibold text-slate-200">Next round #{currentRoundNumber}</span>
           <span> · {apiConfig.provider}</span>
         </div>
-        <span className="text-xs font-mono text-amber-300">PROBABILITY ESTIMATE · NOT A CERTAINTY</span>
+        <span className={`text-xs font-mono ${expandingWon ? 'text-amber-300' : 'text-slate-400'}`}>
+          {expandingWon ? 'VALIDATION: SMALL ADVANTAGE' : 'VALIDATION: NO DEMONSTRATED ADVANTAGE'}
+        </span>
       </div>
 
       <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-        This estimates the next round’s chance of reaching a chosen multiplier by assuming past rounds are representative. If rounds are independent, history does not predict the next result. It is not betting advice and cannot guarantee an outcome.
+        This app estimates a probability from past results only. Independent provably-fair rounds cannot be reliably predicted. This is an experimental reference estimate, not a guarantee or betting advice.
       </div>
 
       <div className="flex flex-wrap items-end gap-3">
         <label className="text-xs text-slate-400">
-          Estimate chance of reaching
+          Estimated probability of reaching
           <span className="mt-1 flex items-center gap-2">
             <input
               aria-label="Multiplier threshold"
@@ -68,7 +60,7 @@ export const NextMultiplierPredictor: React.FC<Props> = ({ history, signal, curr
             <span className="font-mono text-slate-200">x</span>
           </span>
         </label>
-        <div className="text-xs text-slate-400">Based on {estimate.sampleSize} recorded rounds</div>
+        <div className="text-xs text-slate-400">{estimate.sampleSize} valid rounds</div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -76,23 +68,33 @@ export const NextMultiplierPredictor: React.FC<Props> = ({ history, signal, curr
         <Metric label="95% sampling interval" value={`${estimate.lower95Pct.toFixed(1)}–${estimate.upper95Pct.toFixed(1)}%`} />
         <Metric label="Historical median" value={`${signal.medianMultiplier.toFixed(2)}x`} />
       </div>
+
       <p className="text-[11px] leading-relaxed text-slate-500">
-        Estimated frequency: {estimate.successes}/{estimate.sampleSize} historical rounds reached {threshold.toFixed(1)}x. The interval describes sampling uncertainty in this history; it does not account for changes in the game or prove predictive power.
+        {estimate.successes}/{estimate.sampleSize} recorded rounds reached {threshold.toFixed(1)}x. The interval measures sampling uncertainty only and does not prove that rounds are dependent or predictable.
       </p>
 
-      <div className="rounded-lg border border-slate-800 bg-[#090D16] p-4 space-y-2">
-        <div className="text-sm font-semibold text-slate-200">Chronological holdout check</div>
+      <div className="rounded-lg border border-slate-800 bg-[#090D16] p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-slate-200">Chronological holdout validation</div>
+          <span className={`rounded-md px-2 py-1 text-[11px] font-mono ${expandingWon ? 'bg-amber-500/10 text-amber-300' : 'bg-slate-800 text-slate-400'}`}>
+            {expandingWon ? 'OUTPERFORMS BASELINE' : 'NO PREDICTIVE ADVANTAGE SHOWN'}
+          </span>
+        </div>
+
         {backtest.evaluatedRounds > 0 ? (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <Metric label="Unseen rounds tested" value={String(backtest.evaluatedRounds)} />
-              <Metric label="Expanding estimate Brier" value={String(backtest.modelBrier)} />
-              <Metric label="Train-only baseline Brier" value={String(backtest.baselineBrier)} />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <Metric label="Future rounds tested" value={String(backtest.evaluatedRounds)} />
+              <Metric label="Expanding estimate Brier" value={backtest.modelBrier?.toFixed(4) ?? '—'} />
+              <Metric label="Fixed baseline Brier" value={backtest.baselineBrier?.toFixed(4) ?? '—'} />
             </div>
-            <p className="text-[11px] text-slate-500">Lower Brier scores are better. The test uses only earlier rounds to estimate each later round. A similar or worse score than baseline means no demonstrated improvement on this sample.</p>
+            <p className="text-[11px] text-slate-500">
+              Lower Brier score is better. Predictions are made only from earlier rounds, never from the held-out result.
+              {!enoughEvidence && ' This sample is too small to establish a stable advantage.'}
+            </p>
           </>
         ) : (
-          <p className="text-xs text-slate-500">At least 31 valid historical rounds are needed for a chronological holdout check.</p>
+          <p className="text-xs text-slate-500">At least 31 valid rounds are needed for a chronological holdout check.</p>
         )}
       </div>
 
@@ -106,7 +108,8 @@ export const NextMultiplierPredictor: React.FC<Props> = ({ history, signal, curr
           ))}
         </div>
       </div>
-      <div className="text-[11px] text-slate-500">Source: {roomSyncMeta.source} · estimates are descriptive, not guaranteed predictions.</div>
+
+      <div className="text-[11px] text-slate-500">Source: {roomSyncMeta.source} · Experimental estimate; no result is guaranteed.</div>
     </section>
   );
 };
