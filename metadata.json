@@ -1,0 +1,6 @@
+{
+  "name": "AeroPredict Aviator Live Signal & Analytics Engine",
+  "description": "Real-time Aviator crash game signal predictor, live flight telemetry, multiplier history, and statistical probability engine powered by live API integration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
