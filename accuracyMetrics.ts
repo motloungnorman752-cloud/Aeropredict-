@@ -12,35 +12,18 @@ export interface EvaluatedRoundOutcome {
 
 export function evaluateRoundOutcome(round: RoundRecord): EvaluatedRoundOutcome {
   const actual = Number(round.multiplier);
-  const predicted = typeof round.predictedMultiplier === 'number' && !isNaN(round.predictedMultiplier)
-    ? Number(round.predictedMultiplier.toFixed(2))
-    : 1.35;
-
-  if (predicted === 0) {
-    const avoided = actual < 1.35;
-    return {
-      outcome: avoided ? 'EXACT_WIN' : 'SAFE_WIN',
-      isTrueWin: avoided,
-      isTrapAvoided: avoided,
-      predicted: 0,
-      actual,
-      delta: 0,
-      label: avoided ? 'TRAP AVOIDED' : 'SKIPPED',
-    };
-  }
-
-  const delta = Number(Math.abs(actual - predicted).toFixed(2));
-  const isWin = actual >= predicted;
-  const isExact = isWin && delta <= 0.35;
-
+  const predicted = typeof round.predictedMultiplier === 'number' ? round.predictedMultiplier : 0;
+  const isWin = predicted > 0 && actual >= predicted;
+  const isLoss = predicted > 0 && actual < predicted;
+  const delta = predicted > 0 ? Number(Math.abs(actual - predicted).toFixed(2)) : 0;
   return {
-    outcome: isExact ? 'EXACT_WIN' : isWin ? 'SAFE_WIN' : 'LOSS',
+    outcome: isWin ? 'SAFE_WIN' : isLoss ? 'LOSS' : 'EXACT_WIN',
     isTrueWin: isWin,
-    isTrapAvoided: false,
+    isTrapAvoided: predicted === 0,
     predicted,
     actual,
     delta,
-    label: isExact ? 'CLOSE HIT' : isWin ? 'WIN' : 'MISS',
+    label: predicted === 0 ? 'No-bet' : isWin ? 'Met threshold' : 'Missed threshold',
   };
 }
 
@@ -51,13 +34,6 @@ export function computeAccuracyMetrics(rounds: RoundRecord[]) {
   const losses = evaluated.filter((e) => e.outcome === 'LOSS').length;
   const total = evaluated.length;
   const decisiveTotal = wins + losses;
-  const winRatePct = decisiveTotal > 0 ? Number(((wins / decisiveTotal) * 100).toFixed(1)) : 0;
-
-  return {
-    total,
-    wins,
-    exactHits,
-    losses,
-    winRatePct,
-  };
+  const winRatePct = decisiveTotal > 0 ? Number((wins / decisiveTotal * 100).toFixed(1)) : 0;
+  return { total, wins, exactHits, losses, winRatePct };
 }
